@@ -1,0 +1,23 @@
+services:
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: demo-caddy
+    restart: unless-stopped
+
+    ports:
+      - "8080:80"
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+    depends_on:
+      - whoami
+
+  whoami:
+    image: traefik/whoami:latest
+    container_name: demo-whoami
+    restart: unless-stopped
+
+    expose:
+      - "80"

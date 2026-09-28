@@ -1,0 +1,5 @@
+---
+- name: Restart demo application
+  community.docker.docker_compose_v2:
+    project_src: /opt/apps/demo
+    state: restarted

@@ -1,0 +1,31 @@
+---
+- name: Create application directory
+  ansible.builtin.file:
+    path: /opt/apps/demo
+    state: directory
+    owner: devops
+    group: devops
+    mode: "0755"
+
+- name: Deploy Compose file
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../apps/demo/compose.yaml"
+    dest: /opt/apps/demo/compose.yaml
+    owner: devops
+    group: devops
+    mode: "0644"
+  notify: Restart demo application
+
+- name: Deploy Caddyfile
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../apps/demo/Caddyfile"
+    dest: /opt/apps/demo/Caddyfile
+    owner: devops
+    group: devops
+    mode: "0644"
+  notify: Restart demo application
+
+- name: Start demo application
+  community.docker.docker_compose_v2:
+    project_src: /opt/apps/demo
+    state: present

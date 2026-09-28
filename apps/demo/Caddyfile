@@ -1,0 +1,4 @@
+:80 {
+    header X-DevOps-Lab "ansible"
+    reverse_proxy whoami:80
+}
