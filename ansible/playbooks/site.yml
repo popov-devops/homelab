@@ -1,0 +1,7 @@
+---
+- name: Configure homelab infrastructure
+  hosts: devops
+  become: true
+
+  roles:
+    - base
