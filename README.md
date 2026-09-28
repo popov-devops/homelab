@@ -298,3 +298,7 @@ The project should eventually include controlled:
 ## License
 
 This repository is primarily a personal DevOps / Infrastructure-as-Code laboratory and portfolio project.
+
+## CI/CD
+
+Infrastructure changes are validated through GitHub Actions before merging to `main`.
