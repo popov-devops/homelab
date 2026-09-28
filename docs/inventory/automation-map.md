@@ -1,48 +1,158 @@
 # Automation Map
 
-| Current component | Terraform/OpenTofu | Ansible | Docker Compose | Manual / data |
-|---|---:|---:|---:|---:|
-| Proxmox VM 100 | yes | inside guest | no | no |
-| Proxmox VM 101 | yes | inside guest | no | no |
-| Proxmox LXC | yes | yes | maybe | no |
-| Linux users / SSH | no | yes | no | no |
-| Packages | no | yes | no | no |
-| Docker Engine | no | yes | no | no |
-| Docker containers | no | no | yes | no |
-| Application volumes | no | no | yes | data |
-| Monitoring agents | no | yes | no | no |
-| Application configuration | no | templates | yes | no |
-| Secrets | no | Vault/SOPS later | Compose secrets/env | external secret source |
-| Proxmox storage hardware | partial | no | no | yes |
-| Physical server / BIOS / firmware | no | no | no | yes |
-| Backup data | no | no | no | yes |
-| Router physical configuration | no* | possibly | no | yes |
+This document describes the ownership boundaries between the automation layers used by the project.
 
-\* MikroTik automation can be added later, but it should not block the initial DevOps path.
+## Current implementation
 
-## First implementation target
+| Component                   | Terraform | cloud-init | Ansible | Docker Compose | Manual / external |
+| --------------------------- | --------: | ---------: | ------: | -------------: | ----------------: |
+| Proxmox VM `devops-01`      |       yes |          — |       — |              — |                no |
+| VM CPU / RAM / disk         |       yes |          — |       — |              — |                no |
+| VM network interface        |       yes |          — |       — |              — |                no |
+| Initial Linux user          |         — |        yes |       — |              — |                no |
+| SSH public key              |         — |        yes |       — |              — |                no |
+| QEMU Guest Agent bootstrap  |         — |        yes |     yes |              — |                no |
+| Linux packages              |         — |          — |     yes |              — |                no |
+| Docker Engine               |         — |          — |     yes |              — |                no |
+| Docker Compose plugin       |         — |          — |     yes |              — |                no |
+| Demo application directory  |         — |          — |     yes |              — |                no |
+| Application configuration   |         — |          — |     yes |            yes |                no |
+| Docker containers           |         — |          — |       — |            yes |                no |
+| Docker network              |         — |          — |       — |            yes |                no |
+| Application startup         |         — |          — |     yes |            yes |                no |
+| Persistent application data |         — |          — |       — |            yes |          external |
+| Terraform state             |       yes |          — |       — |              — |       local state |
+| Secrets                     |         — |          — | planned |        planned |          external |
 
-Do not start with the entire infrastructure.
+## Ownership model
 
-Start with **one disposable VM**:
+### Terraform
+
+Terraform owns infrastructure resources that are part of the Proxmox environment.
+
+Current scope:
 
 ```text
-Terraform/OpenTofu
-        |
-        v
-Proxmox VM
-        |
-        v
-Ansible
-        |
-        v
-Ubuntu/Debian baseline
-        |
-        v
-Docker Engine
-        |
-        v
-one simple Compose application
+Proxmox
+└── VM
+    ├── CPU
+    ├── RAM
+    ├── disk
+    ├── network
+    └── lifecycle
 ```
 
-Once this works end-to-end, migrate existing hosts/services incrementally.
+Terraform does not own:
+
+* application data;
+* Docker containers;
+* application configuration;
+* secrets.
+
+### cloud-init
+
+cloud-init owns the first bootstrapping stage of the operating system.
+
+Current scope:
+
+```text
+VM
+ |
+ +-- devops user
+ +-- SSH public key
+ +-- sudo configuration
+ +-- QEMU Guest Agent
+```
+
+cloud-init is not used as the main configuration-management system.
+
+### Ansible
+
+Ansible owns operating-system configuration and host-level software.
+
+Current scope:
+
+```text
+Linux host
+ |
+ +-- packages
+ +-- hostname
+ +-- QEMU Guest Agent
+ +-- Docker repository
+ +-- Docker Engine
+ +-- Docker Compose plugin
+ +-- application deployment
+```
+
+### Docker Compose
+
+Docker Compose owns the runtime definition of the demo application:
+
+```text
+demo
+ |
+ +-- caddy
+ |
+ +-- whoami
+ |
+ +-- network
+```
+
+## Planned CI/CD ownership
+
+GitHub Actions will eventually validate repository changes before they are merged or deployed.
+
+Target flow:
+
+```text
+Git push
+   |
+   +--> Terraform fmt / validate
+   |
+   +--> Ansible syntax / lint
+   |
+   +--> configuration validation
+   |
+   v
+ deployment workflow
+```
+
+The CI/CD layer is not yet implemented.
+
+## Physical infrastructure
+
+Physical infrastructure remains outside the current IaC scope:
+
+* Proxmox physical host;
+* physical disks;
+* network switches;
+* MikroTik router;
+* UPS;
+* storage hardware;
+* BIOS / firmware.
+
+These components are documented rather than provisioned by Terraform.
+
+## Design principle
+
+Each layer should have one primary responsibility:
+
+```text
+Terraform
+    → infrastructure
+
+cloud-init
+    → first boot
+
+Ansible
+    → operating system
+
+Docker Compose
+    → application runtime
+
+GitHub Actions
+    → validation and delivery
+```
+
+Cross-layer configuration should be introduced only when there is a clear operational reason.
+

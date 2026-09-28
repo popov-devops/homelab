@@ -1,117 +1,249 @@
-# Current Architecture
+# Current DevOps Architecture
 
-## Logical layers
+This document describes the infrastructure currently managed by the DevOps project.
+
+## End-to-end architecture
 
 ```text
-                    Network / Router
-                         |
-             +-----------+-----------+
-             |                       |
-         HOME LAN                WORK/LAB LAN
-             |                       |
-       +-----+------+          +-----+------+
-       |            |          |            |
-   physical      utility    Proxmox      physical
-    hosts         hosts        |           hosts
+                         Git / GitHub
+                              |
+                              v
+                         Terraform
+                              |
+                              v
+                         Proxmox VE
                               |
                     +---------+---------+
                     |                   |
-                  VM 100              VM 101
+              VM lifecycle        VM resources
                     |                   |
-                   OMV               erling
-                    |                   |
-                 storage            Docker
-                                        |
-                              applications / infra
+                    +---------+---------+
+                              |
+                              v
+                         cloud-init
+                              |
+                  +-----------+-----------+
+                  |                       |
+             Linux user               SSH key
+                  |
+                  v
+              Ansible
+                  |
+        +---------+----------+
+        |                    |
+       base                docker
+        |                    |
+        |              Docker Engine
+        |                    |
+        +---------+----------+
+                  |
+                demo
+                  |
+                  v
+            Docker Compose
+              /       \
+             v         v
+          Caddy      whoami
+             |
+             v
+         HTTP :8080
 ```
 
-## Desired IaC ownership
+## Proxmox environment
 
-### Terraform / OpenTofu
+The current training environment runs on a Proxmox VE host.
 
-Owns infrastructure resources that can be recreated:
+The DevOps VM is:
 
-- Proxmox VMs
-- Proxmox LXC containers
-- VM/LXC CPU and memory
-- virtual disks
-- virtual network interfaces
-- Proxmox storage attachment
-- VM/LXC lifecycle
+| Property       | Value                     |
+| -------------- | ------------------------- |
+| Name           | `devops-01`               |
+| VM ID          | `110`                     |
+| OS             | Ubuntu Server 24.04.5 LTS |
+| CPU            | 2 vCPU                    |
+| RAM            | 2 GiB                     |
+| Disk           | 20 GiB                    |
+| Network bridge | `vmbr0`                   |
+| Addressing     | DHCP                      |
+| Guest Agent    | QEMU Guest Agent          |
 
-It should **not** own application data or secrets.
+The VM is intentionally disposable.
 
-### Ansible
+The goal is to verify that the environment can be recreated from source-controlled configuration rather than preserving a manually configured server.
 
-Owns operating-system configuration:
+## Terraform layer
 
-- users and SSH
-- packages
-- system configuration
-- filesystem mounts
-- firewall
-- Docker Engine
-- monitoring agents
-- systemd units
-- host-specific configuration
+Terraform manages the Proxmox VM.
 
-### Docker Compose
-
-Owns application deployment:
-
-- containers
-- images
-- networks
-- volumes
-- application environment
-- service dependencies
-- application-level configuration
-
-### Git / CI
-
-Owns the delivery workflow:
+Current responsibilities:
 
 ```text
-commit
-  |
-  +--> format / lint / validate
-  |
-  +--> Terraform plan
-  |
-  +--> Ansible lint / syntax check
-  |
-  +--> approval
-  |
-  +--> apply / deployment
+VM
+├── identity
+├── CPU
+├── memory
+├── storage
+├── network
+├── cloud-init configuration
+└── lifecycle
 ```
 
-## Rebuild target
+Terraform does not configure Docker or application services.
 
-The end state of this project should allow:
+## cloud-init layer
+
+cloud-init performs first-boot initialization.
+
+Current responsibilities:
 
 ```text
-new Proxmox host
-       |
-       v
-Terraform/OpenTofu
-       |
-       v
-VM/LXC infrastructure
-       |
-       v
-Ansible
-       |
-       v
-configured Linux hosts
-       |
-       v
-Docker Compose
-       |
-       v
-applications
-       |
-       v
-restore persistent data
+cloud-init
+├── create devops user
+├── configure sudo
+├── install SSH public key
+└── enable QEMU Guest Agent
 ```
 
-The final validation is a controlled rebuild/restore test, not merely a successful `terraform apply`.
+## Ansible layer
+
+Ansible is responsible for host configuration.
+
+The current playbook:
+
+```text
+ansible/playbooks/site.yml
+        |
+        +-- base
+        |
+        +-- docker
+        |
+        +-- demo
+```
+
+### Base role
+
+Configures:
+
+* hostname;
+* common packages;
+* QEMU Guest Agent.
+
+### Docker role
+
+Configures:
+
+* Docker repository;
+* Docker Engine;
+* Docker CLI;
+* containerd;
+* Buildx;
+* Docker Compose plugin;
+* `devops` membership in the `docker` group.
+
+### Demo role
+
+Deploys:
+
+```text
+/opt/apps/demo/
+├── compose.yaml
+└── Caddyfile
+```
+
+and starts the Compose application.
+
+## Application layer
+
+The demo application contains two services:
+
+```text
+Caddy
+  |
+  | reverse_proxy
+  v
+whoami
+```
+
+Caddy exposes port `8080` on the host.
+
+The application is intentionally simple. Its purpose is to validate the deployment pipeline rather than provide production functionality.
+
+## Reproducibility test
+
+The current implementation has been tested by removing the application environment and allowing Ansible to recreate it.
+
+Successful reconstruction confirms the following chain:
+
+```text
+source-controlled configuration
+            |
+            v
+          Ansible
+            |
+            v
+      Docker environment
+            |
+            v
+      Compose application
+            |
+            v
+       HTTP response
+```
+
+## Target architecture
+
+The project will gradually evolve toward:
+
+```text
+Git
+ |
+ +--> Terraform
+ |      |
+ |      v
+ |   Proxmox
+ |      |
+ |      v
+ |    VMs
+ |
+ +--> Ansible
+ |      |
+ |      v
+ |   Linux hosts
+ |      |
+ |      v
+ |   Docker
+ |      |
+ |      v
+ | Applications
+ |
+ +--> CI/CD
+ |
+ +--> Monitoring
+ |
+ +--> Backup / DR
+```
+
+These future layers are intentionally not represented as implemented components until they are actually deployed and tested.
+
+## Architecture principle
+
+The system is divided into independent automation layers:
+
+```text
+Infrastructure
+    Terraform
+
+First boot
+    cloud-init
+
+Operating system
+    Ansible
+
+Application runtime
+    Docker Compose
+
+Delivery
+    GitHub Actions
+```
+
+The boundary between these layers should remain explicit so that each component can be replaced or tested independently.
