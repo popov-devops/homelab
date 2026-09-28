@@ -61,7 +61,7 @@ jobs:
       - name: Terraform validate
         run: terraform validate
 
-  terraform-plan:
+    terraform-plan:
     name: Terraform plan
     runs-on: ubuntu-latest
     needs:
@@ -93,4 +93,29 @@ jobs:
         run: terraform init -backend=false
 
       - name: Terraform plan
-        run: terraform plan -input=false -no-color
+        run: terraform plan \
+          -input=false \
+          -no-color \
+          -out=tfplan
+
+      - name: Show Terraform plan
+        run: terraform show -no-color tfplan > terraform-plan.txt
+
+      - name: Write plan to GitHub summary
+        run: |
+          {
+            echo "## Terraform Plan"
+            echo
+            echo '```text'
+            cat terraform-plan.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Terraform plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: |
+            terraform/proxmox/tfplan
+            terraform/proxmox/terraform-plan.txt
+          retention-days: 7
